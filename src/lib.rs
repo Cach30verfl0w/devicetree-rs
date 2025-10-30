@@ -107,6 +107,7 @@ pub enum Error {
     // Structure Block Token Validation
     InvalidClassName,
     InvalidPropertyName,
+    InvalidStringValue,
     InvalidStringOffset(u32, usize),
 
     // Other
@@ -172,6 +173,7 @@ impl Display for Error {
             // Structure block token validation
             Self::InvalidClassName => write!(formatter, "Unable to parse name of 'begin node' token in structure block"),
             Self::InvalidPropertyName => write!(formatter, "Unable to parse name of 'property' token in structure block"),
+            Self::InvalidStringValue => write!(formatter, "Unable to parse value of 'property' token in structure block holding a string"),
             Self::InvalidStringOffset(string_off, strings_len) => write!(
                 formatter,
                 "String offset ({string_off}) exceeds strings block len {strings_len}"
@@ -301,7 +303,7 @@ pub(crate) struct StructureBlockTokenIterator<'a> {
     pub(crate) header: &'a DtbHeader,
     pub(crate) remaining_data: &'a [u8],
     pub(crate) strings_data: &'a [u8],
-    pub(crate) name_stack: Stack<&'a str, 10> // TODO: We want to support heap stacks when alloc crate is present
+    pub(crate) name_stack: Stack<&'a str, 10> // TODO: We want to support stacks (allocated on the heap) when alloc crate is present
 }
 
 impl<'a> Iterator for StructureBlockTokenIterator<'a> {
@@ -366,18 +368,17 @@ impl<'a> StructureBlockTokenIterator<'a> {
     fn serialize_value(&self, property_name: &str, data: &'a [u8]) -> Result<StructureBlockProperty<'a>, Error> {
         let node_name = *self.name_stack.top().expect("");
         if node_name == "aliases" {
-            return Ok(StructureBlockProperty::String(str::from_utf8(&data[0..data.len() - 1]).unwrap())); // TODO: Handle error
+            return Ok(StructureBlockProperty::String(str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?));
         }
 
-        // TODO: Wie serialisiere ich Adressen, weil sie auf die address-cells und size-cells vom Parent und eigenen Element basieren und
-        //       hier keine context-gebundene Serialisierung möglich ist?
-        //        - Mache ich einfach eine Funktion um die entsprechenden Mappings zu generieren und löse diese dann mit Hilfe dieser
-        //          Funktion auf bzw. biete eine Auflösefunktion an?
         Ok(match property_name {
             "#address-cells" | "#size-cells" | "#interrupt-cells" | "phandle" | "virtual-reg" => {
                 StructureBlockProperty::UnsignedInt32(u32::from_be_bytes(data[0..data.len()].try_into()?))
             },
-            "compatible" | "model" | "status" => StructureBlockProperty::String(str::from_utf8(&data[0..data.len() - 1]).unwrap()), // TODO: Handle error
+            "compatible" | "model" | "status" => {
+                let string = str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?;
+                StructureBlockProperty::String(string)
+            },
             _ => StructureBlockProperty::RawData(data)
         })
     }
@@ -451,7 +452,7 @@ impl<'a> Iterator for StructureBlockNodeIterator<'a> {
                             return None;
                         },
                         1 => {
-                            let (node_start, name) = node_start.unwrap(); // TODO: Handle error
+                            let (node_start, name) = node_start?; // When invalid, return none.
                             let length = node_start.len() - self.inner.remaining_data.len();
                             return Some(StructureBlockNode {
                                 data: &node_start[0..length],

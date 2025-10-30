@@ -1,6 +1,6 @@
 [package]
 name = "devicetree-rs"
-description = "No-std compatible zero-copy parser for the Devicetree Binary (DTB) format"
+description = "No-std compatible, zero-copy parser library for the Devicetree Binary (DTB) format"
 categories = ["embedded", "no-std", "no-std::no-alloc", "parser-implementations", "embedded"]
 keywords = ["dtb", "fdt", "devicetree"]
 version = "1.0.0"

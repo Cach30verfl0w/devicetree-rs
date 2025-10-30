@@ -1,5 +1,5 @@
 # devicetree-rs
-This crate implements a no-std compatible pure-Rust library for parsing the Binary Devicetree (DTB) format.
+This crate implements a no-std compatible, pure-Rust library for parsing the Binary Devicetree (DTB) format.
 
 ## License
 This project is licensed under the Apache-2.0 license.
