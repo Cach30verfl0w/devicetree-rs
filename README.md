@@ -2,7 +2,7 @@
 This crate implements a no-std compatible, pure-Rust library for parsing the Binary Devicetree (DTB) format.
 
 ## License
-This project is licensed under the Apache-2.0 license.
+This project is licensed under the **Apache-2.0** license.
 ```
 Copyright 2025 Cedric Hammes
 
@@ -18,3 +18,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
+
+The tests (`src/tests.rs`) are licensed under the `GNU General Public License 2.0`. The device tree files used in the 
+tests originate from the Linux kernel and are also licensed under GPL-2.0. Please ensure that you comply with the terms 
+of the GPL-2.0 license if you use or distribute these test files.

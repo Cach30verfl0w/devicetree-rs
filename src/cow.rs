@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// SPDX-FileCopyrightText: 2025 Cedric Hammes <contact@cach30verfl0w.net>
+
 #[cfg(feature = "alloc")]
 use crate::alloc::borrow::ToOwned;
 

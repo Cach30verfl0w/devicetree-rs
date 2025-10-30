@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+//
 // SPDX-FileCopyrightText: 2025 Cedric Hammes <contact@cach30verfl0w.net>
 
 //! This crate is a no-std compatible and zero-copy parser for the **devicetree binary format (DTB)** in Rust. When using this crate, you
@@ -60,6 +61,10 @@
 
 pub(crate) mod stack;
 pub(crate) mod cow;
+
+#[cfg(test)]
+#[cfg(feature = "std")]
+mod tests;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
@@ -412,7 +417,6 @@ impl<'a> StructureBlockNode<'a> {
                 header: self.header,
                 name_stack: Stack::default()
             },
-            exhausted: false,
             depth: 0
         }
     }
@@ -423,8 +427,7 @@ impl<'a> StructureBlockNode<'a> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
 pub struct StructureBlockNodeIterator<'a> {
     inner: StructureBlockTokenIterator<'a>,
-    depth: u32,
-    exhausted: bool
+    depth: u32
 }
 
 impl<'a> Iterator for StructureBlockNodeIterator<'a> {
@@ -447,10 +450,7 @@ impl<'a> Iterator for StructureBlockNodeIterator<'a> {
                 StructureBlockToken::EndNode => {
                     self.depth -= 1;
                     match self.depth {
-                        0 => {
-                            self.exhausted = true;
-                            return None;
-                        },
+                        0 => return None,
                         1 => {
                             let (node_start, name) = node_start?; // When invalid, return none.
                             let length = node_start.len() - self.inner.remaining_data.len();
