@@ -1,0 +1,18 @@
+[package]
+name = "devicetree-rs"
+description = "No-std compatible zero-copy parser for the Devicetree Binary (DTB) format"
+categories = ["embedded", "no-std", "no-std::no-alloc", "parser-implementations", "embedded"]
+keywords = ["dtb", "fdt", "devicetree"]
+version = "1.0.0"
+authors = ["Cedric Hammes <contact@cach30verfl0w.net>"]
+readme = "README.md"
+license = "Apache-2.0"
+edition = "2024"
+
+[features]
+default = ["std"]
+std = ["nom/std", "alloc"]
+alloc = ["nom/alloc"]
+
+[dependencies]
+nom = { version = "8.0.0", default-features = false }
