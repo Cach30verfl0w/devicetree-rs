@@ -548,46 +548,6 @@ impl<'a> BinaryDeviceTree<'a> {
         })
     }
 
-    pub fn find_node_by_alias(&'a self, alias: &str) -> Option<StructureBlockNode<'a>> {
-        let mut current_node = self.root_node();
-        let alias_property = current_node.find_child("aliases")?.find_property(alias)?.as_str()?;
-        for path_element in alias_property[1..alias_property.len()].split("/") {
-            current_node = current_node.find_child(path_element)?;
-        }
-
-        Some(current_node)
-    }
-
-    /// This function performs a reverse lookup over the aliases table to find the alias for the specified value pointed at. As example, if
-    /// you enter '/soc/serial@00000000' and the alias is 'serial0', this function returns 'serial0'.
-    pub fn find_alias_by_path(&'a self, path: &str) -> Option<&'a str> {
-        self.root_node().find_child("aliases")?.properties()
-            .filter(|(_, value)| value.as_str().map(|x| x == path).unwrap_or(false))
-            .map(|(name, _)| name)
-            .next()
-    }
-
-    /// This function returns the root node in the structure block section. This can be used to iterate over all nodes present in the
-    /// structure block.
-    pub fn root_node(&'a self) -> StructureBlockNode<'a> {
-        let data = self.data.as_ref();
-        StructureBlockNode {
-            data: &data[self.header.struct_block_offset..(self.header.struct_block_offset + self.header.struct_block_size)],
-            strings_data: &data[self.header.strings_block_offset..(self.header.strings_block_offset + self.header.strings_block_size)],
-            header: &self.header,
-            name: ""
-        }
-    }
-
-    pub fn find_node_by_phandle(&'a self, phandle: u32) -> Option<StructureBlockNode<'a>> {
-        self.root_node().node_iterator(false).find(|node| {
-            if let Some(node_phandle) = node.find_property("phandle").and_then(|x| x.as_u32()) && node_phandle == phandle {
-                return true;
-            };
-            return false;
-        })
-    }
-
     /// This function returns an iterator returning a list of pairs (child_address, parent_address, range_size) where child_address is the
     /// address used for the devices, parent_address being the address being translated to and range_size the size of the address range. The
     /// range is calculated by defining a range from address to address + size.
