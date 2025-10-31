@@ -364,7 +364,7 @@ impl<'a> StructureBlockTokenIterator<'a> {
 
     fn serialize_value(&self, property_name: &str, data: &'a [u8]) -> Result<StructureBlockProperty<'a>, Error> {
         let node_name = *self.node_stack.top_value().unwrap(); // TODO: Handle error
-        if node_name == "aliases" {
+        if node_name == "aliases" && property_name != "phandle" {
             return Ok(StructureBlockProperty::String(str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?));
         }
 
@@ -487,5 +487,10 @@ impl<'a> BinaryDeviceTree<'a> {
             child_address_cells,
             address_range_size
         })
+    }
+
+    #[inline(always)]
+    pub fn aliases(&'a self) -> Option<impl Iterator<Item = (&'a str, &'a str)>> {
+        self.root_node().find_child("aliases").map(|node| node.properties().filter_map(|(name, value)| value.as_str().map(|x| (name, x))))
     }
 }
