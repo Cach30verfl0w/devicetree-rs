@@ -97,6 +97,8 @@ use nom::{
     bytes::{take_till, complete::{tag, take}},
     error::{ErrorKind, FromExternalError, ParseError}
 };
+use nom::combinator::map;
+use nom::multi::count;
 use crate::{cow::Cow, stack::Stack};
 
 /// This enum provides an error type representing all errors possible when working with this library. It includes additional validation and
@@ -291,6 +293,24 @@ pub enum StructureBlockProperty<'a> {
     RawData(&'a [u8])
 }
 
+impl<'a> StructureBlockProperty<'a> {
+    #[inline(always)]
+    pub fn as_u32(&self) -> u32 {
+        match self {
+            Self::UnsignedInt32(value) => *value,
+            _ => panic!("Unable to interpret property as u32")
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_bytes(&self) -> &'a [u8] {
+        match self {
+            Self::RawData(data) => data,
+            _ => panic!("unable to interpret property as &[u8]")
+        }
+    }
+}
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
 pub(crate) enum StructureBlockToken<'a> {
     BeginNode(&'a str),
@@ -408,16 +428,31 @@ impl<'a> StructureBlockNode<'a> {
         self.children().find(|node| node.name.split("@").next().unwrap_or(node.name) == name)
     }
 
+    #[inline(always)]
+    pub fn find_property(&self, requested_name: &str) -> Option<StructureBlockProperty<'a>> {
+        self.token_iterator().filter_map(|token| {
+            if let StructureBlockToken::Property { name, data } = token && name == requested_name {
+                return Some(data);
+            }
+            None
+        }).next()
+    }
+
     /// This function returns an iterator over all children nodes for this node in the range of the data of this node.
     pub fn children(&self) -> StructureBlockNodeIterator<'a> {
         StructureBlockNodeIterator {
-            inner: StructureBlockTokenIterator {
-                remaining_data: self.data,
-                strings_data: self.strings_data,
-                header: self.header,
-                name_stack: Stack::default()
-            },
+            inner: self.token_iterator(),
             depth: 0
+        }
+    }
+
+    #[inline(always)]
+    fn token_iterator(&self) -> StructureBlockTokenIterator<'a> {
+        StructureBlockTokenIterator {
+            remaining_data: self.data,
+            strings_data: self.strings_data,
+            header: self.header,
+            name_stack: Stack::default()
         }
     }
 }
@@ -473,6 +508,34 @@ impl<'a> Iterator for StructureBlockNodeIterator<'a> {
     }
 }
 
+pub struct BusAddressSpacesMapIterator<'a> {
+    parent_address_cells: u32,
+    child_address_cells: u32,
+    address_range_size: u32,
+    range_data: &'a [u8]
+}
+
+impl Iterator for BusAddressSpacesMapIterator<'_> {
+    type Item = (u64, u64, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.range_data.len() < (self.parent_address_cells + self.child_address_cells + self.address_range_size) as _ {
+            return None; // When the data is smaller than the size of one entry, we have to return None.
+        }
+
+        fn read_cells(input: &[u8], cells: u32) -> IResult<&[u8], u64> {
+            map(count(be_u32, cells as usize), |vec| vec.into_iter().fold(0u64, |acc, val| (acc << 32) | val as u64)).parse(input)
+        }
+
+        let (chunk, child_addr) = read_cells(self.range_data, self.child_address_cells).unwrap();
+        let (chunk, parent_addr) = read_cells(chunk, self.parent_address_cells).unwrap();
+        let (chunk, range_size) = read_cells(chunk, self.address_range_size).unwrap();
+        self.range_data = chunk;
+        Some((child_addr, parent_addr, range_size))
+    }
+}
+
+
 /// This structure provides support for parsing a flattened device tree in memory by passing a pointer or slice or a file path for reading
 /// from a file. It implements parsing based on the Devicetree Specification v0.4.
 ///
@@ -521,6 +584,8 @@ impl<'a> BinaryDeviceTree<'a> {
         })
     }
 
+    /// This function returns the root node in the structure block section. This can be used to iterate over all nodes present in the
+    /// structure block.
     pub fn root_node(&'a self) -> StructureBlockNode<'a> {
         let data = self.data.as_ref();
         StructureBlockNode {
@@ -529,5 +594,25 @@ impl<'a> BinaryDeviceTree<'a> {
             header: &self.header,
             name: ""
         }
+    }
+
+    /// This function returns an iterator returning a list of pairs (child_address, parent_address, range_size) where child_address is the
+    /// address used for the devices, parent_address being the address being translated to and range_size the size of the address range. The
+    /// range is calculated by defining a range from address to address + size.
+    pub fn bus_address_spaces_map(&'a self) -> Option<BusAddressSpacesMapIterator<'a>> {
+        let root_node = self.root_node();
+        let parent_address_cells = root_node.find_property("#address-cells")?.as_u32();
+
+        let soc_node = root_node.find_child("soc")?;
+        let child_address_cells = soc_node.find_property("#address-cells")?.as_u32();
+        let address_range_size = soc_node.find_property("#size-cells")?.as_u32();
+        let range_data = soc_node.find_property("ranges")?.as_bytes();
+
+        Some(BusAddressSpacesMapIterator {
+            range_data,
+            parent_address_cells,
+            child_address_cells,
+            address_range_size
+        })
     }
 }
