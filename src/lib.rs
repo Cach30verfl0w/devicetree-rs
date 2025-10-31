@@ -400,7 +400,7 @@ impl<'a> StructureBlockTokenIterator<'a> {
             "#address-cells" | "#size-cells" | "#interrupt-cells" | "phandle" | "virtual-reg" => {
                 StructureBlockProperty::UnsignedInt32(u32::from_be_bytes(data[0..data.len()].try_into()?))
             },
-            "compatible" | "model" | "status" => {
+            "compatible" | "model" | "status" | "device-type" => {
                 let string = str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?;
                 StructureBlockProperty::String(string)
             },
@@ -430,12 +430,7 @@ impl<'a> StructureBlockNode<'a> {
 
     #[inline(always)]
     pub fn find_property(&self, requested_name: &str) -> Option<StructureBlockProperty<'a>> {
-        self.token_iterator().filter_map(|token| {
-            if let StructureBlockToken::Property { name, data } = token && name == requested_name {
-                return Some(data);
-            }
-            None
-        }).next()
+        self.properties().find(|(name, _)| *name == requested_name).map(|(_, property)| property)
     }
 
     /// This function returns an iterator over all children nodes for this node in the range of the data of this node.
@@ -444,6 +439,16 @@ impl<'a> StructureBlockNode<'a> {
             inner: self.token_iterator(),
             depth: 0
         }
+    }
+    
+    pub fn properties(&self) -> impl Iterator<Item = (&'a str, StructureBlockProperty<'a>)> {
+        self.token_iterator().filter_map(|token| {
+            if let StructureBlockToken::Property { name, data } = token {
+                return Some((name, data));
+            }
+
+            None
+        })
     }
 
     #[inline(always)]
@@ -508,14 +513,14 @@ impl<'a> Iterator for StructureBlockNodeIterator<'a> {
     }
 }
 
-pub struct BusAddressSpacesMapIterator<'a> {
+pub struct BusAddressSpacesMappingIterator<'a> {
     parent_address_cells: u32,
     child_address_cells: u32,
     address_range_size: u32,
     range_data: &'a [u8]
 }
 
-impl Iterator for BusAddressSpacesMapIterator<'_> {
+impl Iterator for BusAddressSpacesMappingIterator<'_> {
     type Item = (u64, u64, u64);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -601,7 +606,7 @@ impl<'a> BinaryDeviceTree<'a> {
     /// This function returns an iterator returning a list of pairs (child_address, parent_address, range_size) where child_address is the
     /// address used for the devices, parent_address being the address being translated to and range_size the size of the address range. The
     /// range is calculated by defining a range from address to address + size.
-    pub fn bus_address_spaces_map(&'a self) -> Option<BusAddressSpacesMapIterator<'a>> {
+    pub fn bus_address_spaces_mapping(&'a self) -> Option<BusAddressSpacesMappingIterator<'a>> {
         let root_node = self.root_node();
         let parent_address_cells = root_node.find_property("#address-cells")?.as_u32();
 
@@ -610,7 +615,7 @@ impl<'a> BinaryDeviceTree<'a> {
         let address_range_size = soc_node.find_property("#size-cells")?.as_u32();
         let range_data = soc_node.find_property("ranges")?.as_bytes();
 
-        Some(BusAddressSpacesMapIterator {
+        Some(BusAddressSpacesMappingIterator {
             range_data,
             parent_address_cells,
             child_address_cells,

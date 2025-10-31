@@ -15,9 +15,9 @@ fn node_enumeration() {
 }
 
 #[test]
-fn memory_mapping() {
+fn bus_address_spaces_mapping() {
     let device_tree = BinaryDeviceTree::from_path("./test-files/bcm2711-raspberrypi-4b.dtb").unwrap();
-    let actual_memory_mapping = device_tree.bus_address_spaces_map().unwrap().collect::<Vec<_>>();
+    let actual_memory_mapping = device_tree.bus_address_spaces_mapping().unwrap().collect::<Vec<_>>();
     let expected_memory_mapping: [(u64, u64, u64); 3] = [
         (0x7E000000, 0xFE000000, 0x01800000),
         (0x7C000000, 0xFC000000, 0x02000000),
