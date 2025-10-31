@@ -423,13 +423,18 @@ pub struct StructureBlockNode<'a> {
 
 impl<'a> StructureBlockNode<'a> {
     /// This function enumerates all children of this structure block node and tries to find a children. When the name of the node contains
-    /// the address (the node name has a '@' separator), we only look for the first part before the separator.
+    /// the address (the node name has a '@' separator), we only look for the first part before the separator. When the expected name
+    /// contains a '@', we check for the full name without separation.
     ///
     /// ## Note
     /// - When calling this function, everytime we create a new iterator and enumerate through the memory section
     #[inline(always)]
     pub fn find_child(&self, name: &str) -> Option<StructureBlockNode<'a>> {
-        self.children().find(|node| node.name.split("@").next().unwrap_or(node.name) == name)
+        if name.contains("@") {
+            self.children().find(|node| node.name == name)
+        } else {
+            self.children().find(|node| node.name.split("@").next().unwrap_or(node.name) == name)
+        }
     }
 
     #[inline(always)]
@@ -607,7 +612,7 @@ impl<'a> BinaryDeviceTree<'a> {
         let mut current_node = self.root_node();
         let alias_property = current_node.find_child("aliases")?.find_property(alias)?.as_str();
         for path_element in alias_property[1..alias_property.len()].split("/") {
-            current_node = current_node.children().find(|x| x.name == path_element)?;
+            current_node = current_node.find_child(path_element)?;
         }
 
         Some(current_node)
