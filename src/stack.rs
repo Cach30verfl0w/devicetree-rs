@@ -39,11 +39,16 @@ impl<T, const MAX: usize> Stack<T, MAX> {
         Some(&self.data[self.top])
     }
     
-    pub fn top(&self) -> Option<&T> {
+    pub fn top_value(&self) -> Option<&T> {
         if self.top == 0 {
             return None;
         }
         
         Some(&self.data[self.top - 1])
+    }
+    
+    #[inline(always)]
+    pub fn top_index(&self) -> usize {
+        self.top
     }
 }

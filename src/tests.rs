@@ -43,6 +43,12 @@ fn invalid_searches() {
 }
 
 #[test]
+fn referencing_nodes_by_phandle() {
+    let device_tree = BinaryDeviceTree::from_path("./test-files/bcm2711-raspberrypi-4b.dtb").unwrap();
+    assert_eq!(device_tree.find_node_by_phandle(0x9).map(|x| x.name), Some("uart0_pins"));
+}
+
+#[test]
 fn property_traversal() {
     let device_tree = BinaryDeviceTree::from_path("./test-files/bcm2711-raspberrypi-4b.dtb").unwrap();
     let properties = device_tree.find_node_by_alias("gpio").unwrap().properties().map(|(name, _)| name).collect::<Vec<_>>();

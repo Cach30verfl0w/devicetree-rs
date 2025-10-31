@@ -65,6 +65,7 @@ pub(crate) mod cow;
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod tests;
+pub mod structures;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
@@ -100,6 +101,7 @@ use nom::{
     error::{ErrorKind, FromExternalError, ParseError},
 };
 use crate::{cow::Cow, stack::Stack};
+use crate::structures::node::StructureBlockNode;
 
 /// This enum provides an error type representing all errors possible when working with this library. It includes additional validation and
 /// parsing errors.
@@ -313,6 +315,15 @@ impl<'a> StructureBlockProperty<'a> {
             _ => return None
         })
     }
+
+    #[inline(always)]
+    pub fn as_ptr(&self) -> Option<*const u8> {
+        Some(match self {
+            Self::String(value) => value.as_ptr(),
+            Self::RawData(value) => value.as_ptr(),
+            _ => return None
+        })
+    }
 }
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
@@ -332,7 +343,7 @@ pub(crate) struct StructureBlockTokenIterator<'a> {
     pub(crate) header: &'a DtbHeader,
     pub(crate) remaining_data: &'a [u8],
     pub(crate) strings_data: &'a [u8],
-    pub(crate) name_stack: Stack<&'a str, 10> // TODO: We want to support stacks (allocated on the heap) when alloc crate is present
+    pub(crate) node_stack: Stack<&'a str, 10> // TODO: We want to support stacks (allocated on the heap) when alloc crate is present
 }
 
 impl<'a> Iterator for StructureBlockTokenIterator<'a> {
@@ -360,7 +371,7 @@ impl<'a> StructureBlockTokenIterator<'a> {
             0x00000001 => {
                 let (remaining, name_bytes) = terminated(take_till(|b| b == 0), tag("\0")).parse(remaining)?;
                 let name = str::from_utf8(name_bytes).map_err(|_| Error::InvalidClassName)?;
-                self.name_stack.push(name)?;
+                self.node_stack.push(name)?;
 
                 (remaining, Some(StructureBlockToken::BeginNode(name)))
             },
@@ -382,7 +393,7 @@ impl<'a> StructureBlockTokenIterator<'a> {
                 }))
             },
             0x00000002 => {
-                self.name_stack.pop();
+                self.node_stack.pop();
                 (remaining, Some(StructureBlockToken::EndNode))
             },
             0x00000004 => (remaining, Some(StructureBlockToken::Noop)),
@@ -395,7 +406,7 @@ impl<'a> StructureBlockTokenIterator<'a> {
     }
 
     fn serialize_value(&self, property_name: &str, data: &'a [u8]) -> Result<StructureBlockProperty<'a>, Error> {
-        let node_name = *self.name_stack.top().expect("");
+        let node_name = *self.node_stack.top_value().unwrap(); // TODO: Handle error
         if node_name == "aliases" {
             return Ok(StructureBlockProperty::String(str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?));
         }
@@ -405,7 +416,8 @@ impl<'a> StructureBlockTokenIterator<'a> {
                 let integer = u32::from_be_bytes(data[0..data.len()].try_into().map_err(|_| Error::InvalidIntegerValue)?);
                 StructureBlockProperty::UnsignedInt32(integer)
             },
-            "compatible" | "model" | "status" | "device_type" => {
+            "compatible" | "model" | "status" | "device_type" | "clock-names" | "pinctrl-names" | "clock-output-names" | "dma-names"
+            | "reg-names" | "phy-names" => {
                 let string = str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?;
                 StructureBlockProperty::String(string)
             },
@@ -414,63 +426,8 @@ impl<'a> StructureBlockTokenIterator<'a> {
     }
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
-pub struct StructureBlockNode<'a> {
-    data: &'a [u8],
-    strings_data: &'a [u8],
-    header: &'a DtbHeader,
-    name: &'a str
-}
-
-impl<'a> StructureBlockNode<'a> {
-    /// This function enumerates all children of this structure block node and tries to find a children. When the name of the node contains
-    /// the address (the node name has a '@' separator), we only look for the first part before the separator. When the expected name
-    /// contains a '@', we check for the full name without separation.
-    ///
-    /// ## Note
-    /// - When calling this function, everytime we create a new iterator and enumerate through the memory section
-    #[inline(always)]
-    pub fn find_child(&self, name: &str) -> Option<StructureBlockNode<'a>> {
-        if name.contains("@") {
-            self.children().find(|node| node.name == name)
-        } else {
-            self.children().find(|node| node.name.split("@").next().unwrap_or(node.name) == name)
-        }
-    }
-
-    #[inline(always)]
-    pub fn find_property(&self, requested_name: &str) -> Option<StructureBlockProperty<'a>> {
-        self.properties().find(|(name, _)| *name == requested_name).map(|(_, property)| property)
-    }
-
-    /// This function returns an iterator over all children nodes for this node in the range of the data of this node.
-    pub fn children(&self) -> StructureBlockNodeIterator<'a> {
-        StructureBlockNodeIterator {
-            inner: self.token_iterator(),
-            depth: 0
-        }
-    }
-
-    pub fn properties(&self) -> StructureBlockPropertyIterator<'a> {
-        StructureBlockPropertyIterator {
-            inner: self.token_iterator(),
-            depth: 0
-        }
-    }
-
-    #[inline(always)]
-    fn token_iterator(&self) -> StructureBlockTokenIterator<'a> {
-        StructureBlockTokenIterator {
-            remaining_data: self.data,
-            strings_data: self.strings_data,
-            header: self.header,
-            name_stack: Stack::default()
-        }
-    }
-}
-
-/// This struct is implementing an iterator for structure block node children of another structure block node. This is used for the
-/// iteration of node children and filtering them.
+/// This struct is implementing an iterator for structure block node properties of a structure block node. This is used for the iteration of
+/// properties and filtering them.
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
 pub struct StructureBlockPropertyIterator<'a> {
     inner: StructureBlockTokenIterator<'a>,
@@ -499,57 +456,6 @@ impl<'a> Iterator for StructureBlockPropertyIterator<'a> {
                 }
                 _ => {}
             }
-        }
-
-        None
-    }
-}
-
-/// This struct is implementing an iterator for structure block node children of another structure block node. This is used for the
-/// iteration of node children and filtering them.
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
-pub struct StructureBlockNodeIterator<'a> {
-    inner: StructureBlockTokenIterator<'a>,
-    depth: u32
-}
-
-impl<'a> Iterator for StructureBlockNodeIterator<'a> {
-    type Item = StructureBlockNode<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut node_start = None;
-
-        let mut remaining_data = self.inner.remaining_data;
-        while let Some(token) = self.inner.next() {
-            match token {
-                StructureBlockToken::BeginNode(name) => {
-                    self.depth += 1;
-                    if self.depth != 2 {
-                        continue;
-                    }
-
-                    node_start = Some((remaining_data, name));
-                },
-                StructureBlockToken::EndNode => {
-                    self.depth -= 1;
-                    match self.depth {
-                        0 => return None,
-                        1 => {
-                            let (node_start, name) = node_start?; // When invalid, return none.
-                            let length = node_start.len() - self.inner.remaining_data.len();
-                            return Some(StructureBlockNode {
-                                data: &node_start[0..length],
-                                strings_data: self.inner.strings_data,
-                                header: self.inner.header,
-                                name
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-            remaining_data = self.inner.remaining_data;
         }
 
         None
@@ -592,7 +498,6 @@ impl Iterator for BusAddressSpacesMappingIterator<'_> {
         Some((child_addr, parent_addr, range_size))
     }
 }
-
 
 /// This structure provides support for parsing a flattened device tree in memory by passing a pointer or slice or a file path for reading
 /// from a file. It implements parsing based on the Devicetree Specification v0.4.
@@ -653,6 +558,15 @@ impl<'a> BinaryDeviceTree<'a> {
         Some(current_node)
     }
 
+    /// This function performs a reverse lookup over the aliases table to find the alias for the specified value pointed at. As example, if
+    /// you enter '/soc/serial@00000000' and the alias is 'serial0', this function returns 'serial0'.
+    pub fn find_alias_by_path(&'a self, path: &str) -> Option<&'a str> {
+        self.root_node().find_child("aliases")?.properties()
+            .filter(|(_, value)| value.as_str().map(|x| x == path).unwrap_or(false))
+            .map(|(name, _)| name)
+            .next()
+    }
+
     /// This function returns the root node in the structure block section. This can be used to iterate over all nodes present in the
     /// structure block.
     pub fn root_node(&'a self) -> StructureBlockNode<'a> {
@@ -663,6 +577,15 @@ impl<'a> BinaryDeviceTree<'a> {
             header: &self.header,
             name: ""
         }
+    }
+
+    pub fn find_node_by_phandle(&'a self, phandle: u32) -> Option<StructureBlockNode<'a>> {
+        self.root_node().node_iterator(false).find(|node| {
+            if let Some(node_phandle) = node.find_property("phandle").and_then(|x| x.as_u32()) && node_phandle == phandle {
+                return true;
+            };
+            return false;
+        })
     }
 
     /// This function returns an iterator returning a list of pairs (child_address, parent_address, range_size) where child_address is the
