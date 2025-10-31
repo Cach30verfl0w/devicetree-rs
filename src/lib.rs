@@ -290,27 +290,28 @@ pub enum StructureBlockProperty<'a> {
 
 impl<'a> StructureBlockProperty<'a> {
     #[inline(always)]
-    pub fn as_u32(&self) -> u32 {
-        match self {
+    pub fn as_u32(&self) -> Option<u32> { // TODO If RawData, try to create u32 from it
+        Some(match self {
             Self::UnsignedInt32(value) => *value,
-            _ => panic!("Unable to interpret property as u32")
-        }
+            _ => return None
+        })
     }
 
     #[inline(always)]
-    pub fn as_bytes(&self) -> &'a [u8] {
-        match self {
+    pub fn as_bytes(&self) -> Option<&'a [u8]> {
+        Some(match self {
             Self::RawData(data) => data,
-            _ => panic!("unable to interpret property as &[u8]")
-        }
+            Self::String(data) => data.as_bytes(),
+            _ => return None
+        })
     }
 
     #[inline(always)]
-    pub fn as_str(&self) -> &'a str {
-        match self {
+    pub fn as_str(&self) -> Option<&'a str> { // TODO: If RawData, try to format
+        Some(match self {
             Self::String(data) => data,
-            _ => panic!("unable to interpret property as &[u8]")
-        }
+            _ => return None
+        })
     }
 }
 
@@ -522,6 +523,20 @@ impl<'a> Iterator for StructureBlockNodeIterator<'a> {
     }
 }
 
+fn read_cells(input: &[u8], cells: u32) -> IResult<&[u8], u64> {
+    let mut rest = input;
+    let mut acc = 0u64;
+
+    for _ in 0..cells {
+        let (new_rest, val) = be_u32(rest)?;
+        acc = (acc << 32) | val as u64;
+        rest = new_rest;
+    }
+
+    Ok((rest, acc))
+}
+
+#[derive(Clone)]
 pub struct BusAddressSpacesMappingIterator<'a> {
     parent_address_cells: u32,
     child_address_cells: u32,
@@ -535,19 +550,6 @@ impl Iterator for BusAddressSpacesMappingIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.range_data.len() < (self.parent_address_cells + self.child_address_cells + self.address_range_size) as _ {
             return None; // When the data is smaller than the size of one entry, we have to return None.
-        }
-
-        fn read_cells(input: &[u8], cells: u32) -> IResult<&[u8], u64> {
-            let mut rest = input;
-            let mut acc = 0u64;
-
-            for _ in 0..cells {
-                let (new_rest, val) = be_u32(rest)?;
-                acc = (acc << 32) | val as u64;
-                rest = new_rest;
-            }
-
-            Ok((rest, acc))
         }
 
         let (chunk, child_addr) = read_cells(self.range_data, self.child_address_cells).unwrap();
@@ -610,7 +612,7 @@ impl<'a> BinaryDeviceTree<'a> {
 
     pub fn find_node_by_alias(&'a self, alias: &str) -> Option<StructureBlockNode<'a>> {
         let mut current_node = self.root_node();
-        let alias_property = current_node.find_child("aliases")?.find_property(alias)?.as_str();
+        let alias_property = current_node.find_child("aliases")?.find_property(alias)?.as_str()?;
         for path_element in alias_property[1..alias_property.len()].split("/") {
             current_node = current_node.find_child(path_element)?;
         }
@@ -635,12 +637,12 @@ impl<'a> BinaryDeviceTree<'a> {
     /// range is calculated by defining a range from address to address + size.
     pub fn bus_address_spaces_mapping(&'a self) -> Option<BusAddressSpacesMappingIterator<'a>> {
         let root_node = self.root_node();
-        let parent_address_cells = root_node.find_property("#address-cells")?.as_u32();
+        let parent_address_cells = root_node.find_property("#address-cells")?.as_u32()?;
 
         let soc_node = root_node.find_child("soc")?;
-        let child_address_cells = soc_node.find_property("#address-cells")?.as_u32();
-        let address_range_size = soc_node.find_property("#size-cells")?.as_u32();
-        let range_data = soc_node.find_property("ranges")?.as_bytes();
+        let child_address_cells = soc_node.find_property("#address-cells")?.as_u32()?;
+        let address_range_size = soc_node.find_property("#size-cells")?.as_u32()?;
+        let range_data = soc_node.find_property("ranges")?.as_bytes()?;
 
         Some(BusAddressSpacesMappingIterator {
             range_data,
