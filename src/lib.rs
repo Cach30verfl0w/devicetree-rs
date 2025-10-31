@@ -95,10 +95,8 @@ use nom::{
     Parser,
     sequence::terminated,
     bytes::{take_till, complete::{tag, take}},
-    error::{ErrorKind, FromExternalError, ParseError}
+    error::{ErrorKind, FromExternalError, ParseError},
 };
-use nom::combinator::map;
-use nom::multi::count;
 use crate::{cow::Cow, stack::Stack};
 
 /// This enum provides an error type representing all errors possible when working with this library. It includes additional validation and
@@ -440,7 +438,7 @@ impl<'a> StructureBlockNode<'a> {
             depth: 0
         }
     }
-    
+
     pub fn properties(&self) -> impl Iterator<Item = (&'a str, StructureBlockProperty<'a>)> {
         self.token_iterator().filter_map(|token| {
             if let StructureBlockToken::Property { name, data } = token {
@@ -529,7 +527,16 @@ impl Iterator for BusAddressSpacesMappingIterator<'_> {
         }
 
         fn read_cells(input: &[u8], cells: u32) -> IResult<&[u8], u64> {
-            map(count(be_u32, cells as usize), |vec| vec.into_iter().fold(0u64, |acc, val| (acc << 32) | val as u64)).parse(input)
+            let mut rest = input;
+            let mut acc = 0u64;
+
+            for _ in 0..cells {
+                let (new_rest, val) = be_u32(rest)?;
+                acc = (acc << 32) | val as u64;
+                rest = new_rest;
+            }
+
+            Ok((rest, acc))
         }
 
         let (chunk, child_addr) = read_cells(self.range_data, self.child_address_cells).unwrap();
