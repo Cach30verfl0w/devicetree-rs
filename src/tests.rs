@@ -43,6 +43,20 @@ fn invalid_searches() {
 }
 
 #[test]
+fn property_traversal() {
+    let device_tree = BinaryDeviceTree::from_path("./test-files/bcm2711-raspberrypi-4b.dtb").unwrap();
+    let properties = device_tree.find_node_by_alias("gpio").unwrap().properties().map(|(name, _)| name).collect::<Vec<_>>();
+    assert!(!properties.contains(&"brcm,pins"), "Properties of children node should not be collected when enumerating properties");
+}
+
+#[test]
+fn children_node_traversal() {
+    let device_tree = BinaryDeviceTree::from_path("./test-files/bcm2711-raspberrypi-4b.dtb").unwrap();
+    let children = device_tree.root_node().children().map(|node| node.name).collect::<Vec<_>>();
+    assert!(!children.contains(&"gpio"), "Children of root's children nodes should not be collected when enumerating root node");
+}
+
+#[test]
 fn illegal_header() {
     fn header_bytes<'a>(header: DtbHeader) -> &'a [u8] {
         unsafe {

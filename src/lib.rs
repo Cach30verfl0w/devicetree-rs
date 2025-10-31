@@ -451,14 +451,11 @@ impl<'a> StructureBlockNode<'a> {
         }
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&'a str, StructureBlockProperty<'a>)> {
-        self.token_iterator().filter_map(|token| {
-            if let StructureBlockToken::Property { name, data } = token {
-                return Some((name, data));
-            }
-
-            None
-        })
+    pub fn properties(&self) -> StructureBlockPropertyIterator<'a> {
+        StructureBlockPropertyIterator {
+            inner: self.token_iterator(),
+            depth: 0
+        }
     }
 
     #[inline(always)]
@@ -469,6 +466,42 @@ impl<'a> StructureBlockNode<'a> {
             header: self.header,
             name_stack: Stack::default()
         }
+    }
+}
+
+/// This struct is implementing an iterator for structure block node children of another structure block node. This is used for the
+/// iteration of node children and filtering them.
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
+pub struct StructureBlockPropertyIterator<'a> {
+    inner: StructureBlockTokenIterator<'a>,
+    depth: u32
+}
+
+impl<'a> Iterator for StructureBlockPropertyIterator<'a> {
+    type Item = (&'a str, StructureBlockProperty<'a>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(token) = self.inner.next() {
+            match token {
+                StructureBlockToken::BeginNode(_) => {
+                    self.depth += 1;
+                },
+                StructureBlockToken::Property { name, data } => {
+                    if self.depth == 1 {
+                        return Some((name, data));
+                    }
+                }
+                StructureBlockToken::EndNode => {
+                    self.depth -= 1;
+                    if self.depth == 0 {
+                        return None;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
     }
 }
 
