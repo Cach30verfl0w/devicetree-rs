@@ -6,6 +6,10 @@ This crate implements a no-std compatible, pure-Rust library for parsing the Bin
 
 ## ToDo
 - [ ] Testing against malformed formats (fuzzing etc.)
+- [ ] Creation of memory map based on the device tree
+- [ ] Enumeration of all present devices in the structure block
+- [ ] Function for reading the memory reservation block
+- [ ] Add CI/CD script for running tests, fuzzing and publishing
 
 ## License
 This project is licensed under the **Apache-2.0** license.
