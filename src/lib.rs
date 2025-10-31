@@ -73,6 +73,9 @@ extern crate alloc;
 pub(crate) use core as std;
 
 #[cfg(feature = "std")]
+pub(crate) use std as std;
+
+#[cfg(feature = "std")]
 pub(crate) use std as alloc;
 
 use std::{
@@ -85,7 +88,6 @@ use std::{
     num::NonZeroU64,
     ptr::NonNull,
     slice,
-    array::TryFromSliceError,
     ffi::CStr
 };
 use nom::{
@@ -101,7 +103,7 @@ use crate::{cow::Cow, stack::Stack};
 
 /// This enum provides an error type representing all errors possible when working with this library. It includes additional validation and
 /// parsing errors.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Error {
     // Header Validation
     InvalidMagicBytes(u32),
@@ -113,10 +115,10 @@ pub enum Error {
     InvalidClassName,
     InvalidPropertyName,
     InvalidStringValue,
+    InvalidIntegerValue,
     InvalidStringOffset(u32, usize),
 
     // Other
-    TryFromSlice(TryFromSliceError),
     StackOverflow,
     Parser(ErrorKind)
 }
@@ -136,11 +138,6 @@ impl From<Error> for nom::Err<Error> {
     }
 }
 
-impl From<TryFromSliceError> for Error {
-    fn from(value: TryFromSliceError) -> Self {
-        Self::TryFromSlice(value)
-    }
-}
 
 impl ErrorExt for Error {}
 
@@ -179,6 +176,7 @@ impl Display for Error {
             Self::InvalidClassName => write!(formatter, "Unable to parse name of 'begin node' token in structure block"),
             Self::InvalidPropertyName => write!(formatter, "Unable to parse name of 'property' token in structure block"),
             Self::InvalidStringValue => write!(formatter, "Unable to parse value of 'property' token in structure block holding a string"),
+            Self::InvalidIntegerValue => write!(formatter, "Unable to parse value of 'property' token in structure block hlolding an int"),
             Self::InvalidStringOffset(string_off, strings_len) => write!(
                 formatter,
                 "String offset ({string_off}) exceeds strings block len {strings_len}"
@@ -186,7 +184,6 @@ impl Display for Error {
 
             // Other
             Self::StackOverflow => write!(formatter, "Stack Overflow"),
-            Self::TryFromSlice(error) => write!(formatter, "{}", error),
             Self::Parser(error) => write!(formatter, "Parsing Error => {}", error.description())
         }
     }
@@ -198,7 +195,7 @@ impl Display for Error {
 /// ## References
 /// - [Header, Flattened Devicetree Format (FDT); The Devicetree Specification v0.4](https://github.com/devicetree-org/devicetree-specification/releases/tag/v0.4)
 #[repr(C)]
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash, Default)]
 pub struct DtbHeader {
     pub magic_bytes: u32,
     pub total_size: u32,
@@ -307,6 +304,14 @@ impl<'a> StructureBlockProperty<'a> {
             _ => panic!("unable to interpret property as &[u8]")
         }
     }
+
+    #[inline(always)]
+    pub fn as_str(&self) -> &'a str {
+        match self {
+            Self::String(data) => data,
+            _ => panic!("unable to interpret property as &[u8]")
+        }
+    }
 }
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
@@ -396,9 +401,10 @@ impl<'a> StructureBlockTokenIterator<'a> {
 
         Ok(match property_name {
             "#address-cells" | "#size-cells" | "#interrupt-cells" | "phandle" | "virtual-reg" => {
-                StructureBlockProperty::UnsignedInt32(u32::from_be_bytes(data[0..data.len()].try_into()?))
+                let integer = u32::from_be_bytes(data[0..data.len()].try_into().map_err(|_| Error::InvalidIntegerValue)?);
+                StructureBlockProperty::UnsignedInt32(integer)
             },
-            "compatible" | "model" | "status" | "device-type" => {
+            "compatible" | "model" | "status" | "device_type" => {
                 let string = str::from_utf8(&data[0..data.len() - 1]).map_err(|_| Error::InvalidStringValue)?;
                 StructureBlockProperty::String(string)
             },
@@ -553,6 +559,7 @@ impl Iterator for BusAddressSpacesMappingIterator<'_> {
 ///
 /// ## References
 /// - [Flattened Devicetree (DTB) Format, Devicetree Specification v0.4](https://github.com/devicetree-org/devicetree-specification/releases/tag/v0.4)
+#[derive(PartialEq, Debug)]
 pub struct BinaryDeviceTree<'a> {
     pub header: DtbHeader,
     data: Cow<'a, [u8]>
@@ -594,6 +601,16 @@ impl<'a> BinaryDeviceTree<'a> {
             header: DtbHeader::from_be(&data)?.1,
             data: Cow::Owned(data)
         })
+    }
+
+    pub fn find_node_by_alias(&'a self, alias: &str) -> Option<StructureBlockNode<'a>> {
+        let mut current_node = self.root_node();
+        let alias_property = current_node.find_child("aliases")?.find_property(alias)?.as_str();
+        for path_element in alias_property[1..alias_property.len()].split("/") {
+            current_node = current_node.children().find(|x| x.name == path_element)?;
+        }
+
+        Some(current_node)
     }
 
     /// This function returns the root node in the structure block section. This can be used to iterate over all nodes present in the
