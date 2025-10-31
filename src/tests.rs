@@ -13,6 +13,7 @@ fn node_enumeration() {
     };
 
     assert_eq!(soc_node.children().collect::<Vec<_>>().len(), 67);
+    assert_eq!(soc_node.find_children("serial").collect::<Vec<_>>().len(), 6);
 }
 
 #[test]

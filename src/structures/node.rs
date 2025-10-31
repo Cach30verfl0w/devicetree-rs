@@ -17,19 +17,14 @@ pub struct StructureBlockNode<'a> {
 }
 
 impl<'a> StructureBlockNode<'a> {
-    /// This function enumerates all children of this structure block node and tries to find a children. When the name of the node contains
-    /// the address (the node name has a '@' separator), we only look for the first part before the separator. When the expected name
-    /// contains a '@', we check for the full name without separation.
-    ///
-    /// ## Note
-    /// - When calling this function, everytime we create a new iterator and enumerate through the memory section
     #[inline(always)]
     pub fn find_child(&self, name: &str) -> Option<StructureBlockNode<'a>> {
-        if name.contains("@") {
-            self.children().find(|node| node.name == name)
-        } else {
-            self.children().find(|node| node.name.split("@").next().unwrap_or(node.name) == name)
-        }
+        self.children().find(|node| node.name == name)
+    }
+
+    #[inline(always)]
+    pub fn find_children(&self, expected_name: &str) -> impl Iterator<Item = StructureBlockNode<'a>> {
+        self.children().filter(move |node| node.name.split("@").next().unwrap_or(node.name) == expected_name)
     }
 
     #[inline(always)]
