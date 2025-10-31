@@ -1,4 +1,11 @@
-use crate::{BinaryDeviceTree, DtbHeader, StructureBlockProperty, StructureBlockPropertyIterator, StructureBlockToken, StructureBlockTokenIterator};
+use crate::{
+    BinaryDeviceTree,
+    DtbHeader,
+    StructureBlockProperty,
+    structures::property::StructureBlockPropertyIterator,
+    StructureBlockToken,
+    StructureBlockTokenIterator
+};
 use crate::stack::Stack;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
