@@ -596,6 +596,8 @@ impl<'a> BinaryDeviceTree<'a> {
         }
     }
 
+    // TODO: Add function returning an iterator iterating over all devices found?
+
     /// This function returns an iterator returning a list of pairs (child_address, parent_address, range_size) where child_address is the
     /// address used for the devices, parent_address being the address being translated to and range_size the size of the address range. The
     /// range is calculated by defining a range from address to address + size.
