@@ -420,6 +420,27 @@ impl Iterator for BusAddressSpacesMappingIterator<'_> {
     }
 }
 
+pub struct MemoryRangesIterator<'a> {
+    data: &'a [u8],
+    addr_cells: u32,
+    size_cells: u32,
+}
+
+impl Iterator for MemoryRangesIterator<'_> {
+    type Item = (u64, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.data.len() < (self.addr_cells + self.size_cells) as _ {
+            return None;
+        }
+
+        let (chunk, addr) = read_cells(self.data, self.addr_cells).unwrap();
+        let (chunk, size) = read_cells(chunk, self.size_cells).unwrap();
+        self.data = chunk;
+        Some((addr, size))
+    }
+}
+
 /// This structure provides support for parsing a flattened device tree in memory by passing a pointer or slice or a file path for reading
 /// from a file. It implements parsing based on the Devicetree Specification v0.4.
 ///
@@ -466,6 +487,16 @@ impl<'a> BinaryDeviceTree<'a> {
         Ok(Self {
             header: DtbHeader::from_be(&data)?.1,
             data: Cow::Owned(data)
+        })
+    }
+
+    pub fn memory_sections(&'a self) -> Option<MemoryRangesIterator<'a>> {
+        let root_node = self.root_node();
+        let memory_node = root_node.find_child("memory@0")?;
+        Some(MemoryRangesIterator {
+            data: memory_node.find_property("reg")?.as_bytes()?,
+            size_cells: memory_node.find_property("#size-cells").or_else(|| root_node.find_property("#size-cells"))?.as_u32()?,
+            addr_cells: memory_node.find_property("#address-cells").or_else(|| root_node.find_property("#address-cells"))?.as_u32()?
         })
     }
 
